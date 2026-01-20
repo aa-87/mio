@@ -31,8 +31,8 @@ RUN2(HTTPREQ,HTTPRSP,HTTPARGS)
 	Q       
 	;       
 RUN(HTTPREQ,HTTPRSP,HTTPARGS)
-	S HTTPRSP("mime")="javascript/json"
-	S @HTTPRSP@(1)="{}"
+	S HTTPRSP("mime")="text/html"
+	S @HTTPRSP@(1)="Hello World"
 	Q       
 	;
 RUNVIDS(HTTPREQ,HTTPRSP,HTTPARGS)
@@ -98,7 +98,7 @@ WAIT
 	S HTTPREQ("method")=$P(TCPX," ")
 	S HTTPREQ("path")=$P($P(TCPX," ",2),"?")
 	S HTTPREQ("query")=$P($P(TCPX," ",2),"?",2,999)
-	S HTTPREQ("body")="^MIO("":WS"",""IN"","_$J_")" K @HTTPREQ("body")
+	S HTTPREQ("body")="%MIOI" K @HTTPREQ("body")
 	I $E($P(TCPX," ",3),1,4)'="HTTP" G NEXT
 	F  S TCPX=$$RDCRLF() Q:'$L(TCPX)  D ADDHEAD(TCPX)
 	I $G(HTTPREQ("header","expect"))="100-continue" D
@@ -115,10 +115,8 @@ WAIT
 	S $ETRAP="G ETSOCK^MIOWS"
 	U %WTCP:(nodelim)
 	I $G(HTTPERR) D RSPERROR
-	D SENDATA C %WTCP HALT
-	I $G(HTTPRSP("header","Connection"))="close" D  HALT
-	. K ^TMP($J),^TMP("HTTPERR",$J)
-	. C %WTCP
+	D SENDATA
+	I $G(HTTPRSP("header","Connection"))="close" C %WTCP H
 	G NEXT
 RDCRLF() ;:PRIVATE:
 	N X,LINE,RETRY
@@ -202,7 +200,7 @@ RESPOND
 	S ROUTINE=""
 	D MATCH(.ROUTINE,.HTTPARGS) I $G(HTTPERR) Q
 	D QSPLIT(.HTTPARGS) I $G(HTTPERR) QUIT
-	s HTTPRSP="^MIO("":WS"",""OUT"","_$J_")" k @HTTPRSP
+	s HTTPRSP="%MIOO" k @HTTPRSP
 	I ROUTINE="" S ROUTINE="RUN"
 	D @(ROUTINE_"(.HTTPREQ,.HTTPRSP,.HTTPARGS)")
 	Q
@@ -234,7 +232,8 @@ MATCHF(ROUTINE,ARGS,AUTHNODE)
 SENDATA
 	N %WBUFF S %WBUFF=""
 	N SIZE,RSPTYPE,PREAMBLE,START,LIMIOT
-	S RSPTYPE=$S($E($G(HTTPRSP))'="^":1,1:2)
+	;S RSPTYPE=$S($E($G(HTTPRSP))'="^":1,1:2)
+	S RSPTYPE=$S($E($G(HTTPRSP))="%":2,$E($G(HTTPRSP))'="^":1,1:2)
 	I RSPTYPE=1 S SIZE=$$VARSIZE(.HTTPRSP)
 	I RSPTYPE=2 S SIZE=$$REFSIZE(.HTTPRSP)
 	D W($$RSPLINE()_$C(13,10))
@@ -478,8 +477,8 @@ DIRECT
 	. I MIOTYPE="[" S MIOSTACK=MIOSTACK+1,MIOSTACK(MIOSTACK)=1 D:MIOSTACK>64 ERRX("STL[") Q
 	. I MIOTYPE="]" D:'$$NUMERIC(MIOSTACK(MIOSTACK)) ERRX("ARM") S MIOSTACK=MIOSTACK-1 D:MIOSTACK<0 ERRX("SUF]") Q
 	. I MIOTYPE="," D  Q
-	. . I MIOSTACK(MIOSTACK) S MIOSTACK(MIOSTACK)=MIOSTACK(MIOSTACK)+1  ; next in array
-	. . E  S MIOPROP=1                                   ; or next property name
+	. . I MIOSTACK(MIOSTACK) S MIOSTACK(MIOSTACK)=MIOSTACK(MIOSTACK)+1 
+	. . E  S MIOPROP=1                                  
 	. I MIOTYPE=":" S MIOPROP=0 D:'$L($G(MIOSTACK(MIOSTACK))) ERRX("MPN") Q
 	. I MIOTYPE="""" D  Q
 	. . I MIOPROP S MIOSTACK(MIOSTACK)=$$NAMPARS() I 1
@@ -628,11 +627,11 @@ REALCHAR(C,X,POS)
 	;
 PARSE10(BODY,PARSED)
 	N LL S LL="" N L S L=1 K PARSED
-	N I S I="" F  S I=$O(BODY(I)) Q:'I  D  ; For each 4080 character block
-	. N J F J=1:1:$L(BODY(I),$C(10)) D  ; For each line
-	. . S:(J=1&(L>1)) L=L-1 ; Replace old line (see 2 lines below)
-	. . S PARSED(L)=$TR($P(BODY(I),$C(10),J),$C(13)) ; Get line; Take CR out if there. ;
-	. . S:(J=1&(L>1)) PARSED(L)=LL_PARSED(L) ; If first line, append the last line before it and replace it. ;
+	N I S I="" F  S I=$O(BODY(I)) Q:'I  D 
+	. N J F J=1:1:$L(BODY(I),$C(10)) D  
+	. . S:(J=1&(L>1)) L=L-1 
+	. . S PARSED(L)=$TR($P(BODY(I),$C(10),J),$C(13)) 
+	. . S:(J=1&(L>1)) PARSED(L)=LL_PARSED(L) 
 	. . S LL=PARSED(L)
 	. . S L=L+1 
 	Q
@@ -671,7 +670,7 @@ DECODE64(X) ;
 INIT64() Q "=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" 
 URLDEC(X,PATH)
 	N I,OUT,FRAG,ASC
-	S:'$G(PATH) X=$TR(X,"+"," ") ; don't convert '+' in path fragment
+	S:'$G(PATH) X=$TR(X,"+"," ")
 	F I=1:1:$L(X,"%") D
 	. I I=1 S OUT=$P(X,"%") Q
 	. S FRAG=$P(X,"%",I),ASC=$E(FRAG,1,2),FRAG=$E(FRAG,3,$L(FRAG))
