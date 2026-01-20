@@ -34,6 +34,50 @@ RUN(HTTPREQ,HTTPRSP,HTTPARGS)
 	S HTTPRSP("mime")="text/html"
 	S @HTTPRSP@(1)="Hello World"
 	Q       
+WS	U %WTCP:(NODELIM)
+	W "HTTP/1.1 101 Switching Protocols"_$C(13,10)
+	W "Upgrade: websocket"_$C(13,10)
+	W "Connection: Upgrade"_$C(13,10)
+	W "Sec-WebSocket-Accept: "
+	W $$GENWS(HTTPREQ("header","sec-websocket-key"))
+	W $C(13,10)_$C(13,10) 
+WS1	K X,Y,Z,MSK,PZ,I,PL,OPC R *X S OPC=X R *X S X=X-128 I X<=125 S PZ=X
+	I OPC=136 W $$WSMSG("") H
+	I X=126 R X#2 S PZ=$$WSSZ16(X)
+	I X=127 R X#8 S PZ=$$WSSZ64(X)
+	R MSK#4 R PL#PZ
+	K %WSI,%WSO S (%WSI,%WSO)=""
+	S %WSI=$$UNMSK(PL,MSK) 
+	S HTTPRSP="%MIOO" k @HTTPRSP D RESPOND
+	W $$WSMSG(@HTTPRSP)
+	H 0.01 G WS1
+WSMSG(M,OPCODE)
+	 N B1,B2,LEN,O S O="" I $G(OPCODE)="" S OPCODE=1
+	 S B1=$S(1:128,1:0) ; FIN=1 -> ONLY -> SINGLE-FRAME MESSAGES		
+	 S B1=B1+OPCODE     ; 8=CLOSE   9=PING   10=PONG    1=TEXT
+		 S LEN=$L($G(M))
+		 I LEN<126 S B2=LEN S O=O_$C(B1,B2)
+		 I LEN>=126,LEN<65536126 S B2=126 S O=O_$C(B1,B2)_$C(LEN\256#256,LEN#256)
+	 I LEN>=65536126 D
+	 . S B2=127
+	 . N I,BUF S BUF=""
+	 . N L S L=LEN
+	 . F I=7:-1:0 S BUF=$C((L\(256**I))#256)_BUF
+	 . S O=O_$C(B1,B2)_BUF
+	 Q O_M
+	 ;
+SHA1(X) N D,C,S,O,CD S D="shasum"_$J,C="echo -n """_X_""" | openssl sha1 -binary | openssl base64"
+		S O="",CD=$P O D:(SHELL="/bin/sh":COMM=C)::"pipe" U D F  Q:$ZEOF=1  R S:2 S O=O_$P(S," ") Q:'$T
+		C D U CD Q O
+GENWS(K) N T S T="258EAFA5-E914-47DA-95CA-C5AB0DC85B11" Q $$SHA1(K_T)
+UNMSK(X,Y) N I,O S O="" F I=1:1:$L(X) S O=O_$C($$XOR($A(X,I),$A(Y,$S('(I#4):4,1:I#4)),8))
+	Q O
+XOR(A,B,W) N I,M,R S R=B,M=1 F I=1:1:W S:A\M#2 R=R+$S(R\M#2:-M,1:M) S M=M+M
+	Q R	
+WSSZ64(X) N X1,X2,X3,X4,X5,X6,X7,X8 S X1=$A($E(X)),X2=$A($E(X,2)),X3=$A($E(X,3)),X4=$A($E(X,4))
+		S X5=$A($E(X,5)),X6=$A($E(X,6)),X7=$A($E(X,7)),X8=$A($E(X,8))
+		Q (X1*256**7)+(X2*256**6)+(X3*256**5)+(X4*256**4)+(X5*256**3)+(X6*256**2)+(X7*256)+X8	
+WSSZ16(X) N X1,X2 S X1=$A($E(X)),X2=$A($E(X,2)) Q (X1*256)+X2
 	;
 RUNVIDS(HTTPREQ,HTTPRSP,HTTPARGS)
 	S HTTPRSP("mime")="video/mp4"
@@ -103,6 +147,7 @@ WAIT
 	F  S TCPX=$$RDCRLF() Q:'$L(TCPX)  D ADDHEAD(TCPX)
 	I $G(HTTPREQ("header","expect"))="100-continue" D
 	. W "HTTP/1.1 100 Continue",$C(13,10,13,10),!
+	I $ZCONVERT($G(HTTPREQ("header","connection")),"L")="upgrade",$ZCONVERT($G(HTTPREQ("header","upgrade")),"L")="websocket" G WS
 	U %WTCP:(nodelim)
 	I $$LOW($G(HTTPREQ("header","transfer-encoding")))="chunked" D
 	. D RDCHNKS
@@ -211,11 +256,11 @@ QSPLIT(QUERY)
 	. S NAME=$P(X,"="),VALUE=$P(X,"=",2,999)
 	. I $L(NAME) S QUERY($$LOW(NAME))=VALUE
 	Q
+MATCHWS(RTN,ARGS) N AUD S RTN="" D MATCHF(.RTN,.ARGS,.AUD) Q	
 MATCH(ROUTINE,ARGS)
 	N AUTHNODE
 	S ROUTINE=""
 	D MATCHF(.ROUTINE,.ARGS,.AUTHNODE) Q
-	I ROUTINE="" S ROUTINE="RUN"
 	Q
 MATCHF(ROUTINE,ARGS,AUTHNODE)
 	N PATH S PATH=HTTPREQ("path")
@@ -224,10 +269,9 @@ MATCHF(ROUTINE,ARGS,AUTHNODE)
 	N PATH1 S PATH1=$$URLDEC($P(PATH,"/",1,999),1)
 	N PATTERN S PATTERN=PATH1
 	I PATTERN="" S PATTERN="/"
-	; "PUT"=HTTPREQ("method")
-	;I $P(PATH,"/")="_builtinide_" S ROUTINE="RUN2^MIOWS"
 	I $D(^MIO(":WS","ROUTES",HTTPREQ("method"),PATTERN)) D
 	. S ROUTINE=$O(^MIO(":WS","ROUTES",HTTPREQ("method"),PATTERN,""))
+	I ROUTINE="" S ROUTINE="RUN"
 	Q
 SENDATA
 	N %WBUFF S %WBUFF=""
