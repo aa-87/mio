@@ -1,7 +1,6 @@
-	;
-MIOWS  ; AA 4/25/20
-	; MIO Web Server
-	; V 1.0
+MIOWS 	;  MIO Web Server
+		; AA 1/20/26
+		; V 1.0
 	;#################################################################
 	;#                                                               #
 	;# Copyright (c) 2025 Ahmed Khaled Abdelrazek                    #
@@ -24,22 +23,31 @@ Stop
 	S $P(^MIO(":WS","JOB:STATUS"),":")="stopped"
 	W "MIO Web Server stopped.",!
 	Q
-	;
 RUN2(HTTPREQ,HTTPRSP,HTTPARGS)
 	S HTTPRSP("mime")="javascript/json"
 	S @HTTPRSP@(1)="{"_"STATUS"_":"_1_"}"
 	Q       
-	;       
 RUN(HTTPREQ,HTTPRSP,HTTPARGS)
 	S HTTPRSP("mime")="text/html"
 	S @HTTPRSP@(1)="Hello World"
-	Q       
+	Q
+WSBENCH
+	S ST=$ZUT
+	D SELFTEST^MIOSHA1
+	S END=$ZUT
+	W "M=>",(END-ST)/1000,!
+	S ST=$ZUT
+	D SELFTEST2^MIOSHA1
+	S END=$ZUT
+	W "C=>",(END-ST)/1000,!
+	Q   
 WS	U %WTCP:(NODELIM)
 	W "HTTP/1.1 101 Switching Protocols"_$C(13,10)
 	W "Upgrade: websocket"_$C(13,10)
 	W "Connection: Upgrade"_$C(13,10)
 	W "Sec-WebSocket-Accept: "
-	W $$GENWS(HTTPREQ("header","sec-websocket-key"))
+	;W $$GENWS(HTTPREQ("header","sec-websocket-key"))
+	W $$WSACCEPT^MIOSHA1(HTTPREQ("header","sec-websocket-key")) ;
 	W $C(13,10)_$C(13,10) 
 WS1	K X,Y,Z,MSK,PZ,I,PL,OPC R *X S OPC=X R *X S X=X-128 I X<=125 S PZ=X
 	I OPC=136 W $$WSMSG("") H
@@ -163,24 +171,24 @@ WAIT
 	D SENDATA
 	I $G(HTTPRSP("header","Connection"))="close" C %WTCP H
 	G NEXT
-RDCRLF() ;:PRIVATE:
+RDCRLF()
 	N X,LINE,RETRY
 	S LINE=""
 	F RETRY=1:1 R X:1 S LINE=LINE_X Q:$A($ZB)=13  Q:RETRY>10
 	Q LINE
-RDCHNKS ;:PRIVATE:
+RDCHNKS
 	Q
-RDLEN(REMAIN,TIMEOUT) ;:PRIVATE:
+RDLEN(REMAIN,TIMEOUT)
 	N X,LINE,LENGTH
 	S LINE=0
-RDLOOP ;:PRIVATE:
+RDLOOP
 	S LENGTH=REMAIN I LENGTH>1600 S LENGTH=1600
 	R X#LENGTH:TIMEOUT
 	I '$T S LINE=LINE+1,@HTTPREQ("body")@(LINE)=X Q
 	S REMAIN=REMAIN-$L(X),LINE=LINE+1,@HTTPREQ("body")@(LINE)=X
 	G:REMAIN RDLOOP
 	Q
-ADDHEAD(LINE) ;:PRIVATE:
+ADDHEAD(LINE)
 	N NAME,VALUE
 	S NAME=$$LOW($$LTRIM($P(LINE,":")))
 	S VALUE=$$LTRIM($P(LINE,":",2,99))
